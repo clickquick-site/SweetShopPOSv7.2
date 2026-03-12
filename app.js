@@ -456,14 +456,11 @@ class SessionManager {
     this.sessionActive = false;
     this.user = null;
     this.listeners = [];
-    // ✅ تحميل الجلسة فوراً عند إنشاء الكائن
-    // لأن requireAuth() تُستدعى قبل initApp() في صفحات كـ sale.html
+    // ✅ تحميل الجلسة فوراً — لأن requireAuth() قد تُستدعى قبل init()
     this._loadFromStorage();
   }
 
   init() {
-    // _loadFromStorage سبق استدعاؤها في الـ constructor
-    // نكتفي هنا بتهيئة الأحداث والمؤقت
     this._setupEventListeners();
     if (this.user) {
       this._resetTimer();
@@ -1641,6 +1638,101 @@ function initSidebar() {
 
   if (!sidebar) return;
 
+  // ── بناء محتوى الـ Sidebar ──────────────────────────────────
+  const user        = window.sessionManager.getUser();
+  const role        = user?.role || 'seller';
+  const username    = user?.username || '—';
+  const currentPage = location.pathname.split('/').pop() || 'sale.html';
+
+  const roleLabels = { admin: '👑 مدير', manager: '🛡️ مدير مساعد', seller: '👤 بائع' };
+  const roleLabel  = roleLabels[role] || role;
+
+  // روابط التنقل — مع تحديد الصلاحيات
+  const navLinks = [
+    {
+      group: 'الرئيسية',
+      items: [
+        { href: 'sale.html',      icon: 'fa-cash-register',  label: 'واجهة البيع',     roles: ['admin','manager','seller'] },
+      ]
+    },
+    {
+      group: 'الإدارة',
+      items: [
+        { href: 'inventory.html',  icon: 'fa-boxes-stacked',  label: 'المخزون',          roles: ['admin','manager'] },
+        { href: 'customers.html',  icon: 'fa-users',           label: 'الزبائن والديون', roles: ['admin','manager','seller'] },
+        { href: 'suppliers.html',  icon: 'fa-truck',           label: 'الموردون',         roles: ['admin','manager'] },
+        { href: 'expenses.html',   icon: 'fa-wallet',          label: 'المصاريف والعمال',roles: ['admin','manager'] },
+      ]
+    },
+    {
+      group: 'التقارير',
+      items: [
+        { href: 'reports.html',    icon: 'fa-chart-line',      label: 'التقارير',         roles: ['admin','manager'] },
+      ]
+    },
+    {
+      group: 'النظام',
+      items: [
+        { href: 'users.html',      icon: 'fa-user-shield',     label: 'المستخدمون',       roles: ['admin'] },
+        { href: 'settings.html',   icon: 'fa-gear',            label: 'الإعدادات',        roles: ['admin','manager'] },
+      ]
+    }
+  ];
+
+  // بناء HTML
+  let navHTML = '';
+  navLinks.forEach(group => {
+    const visibleItems = group.items.filter(item => item.roles.includes(role));
+    if (visibleItems.length === 0) return;
+
+    navHTML += `<div class="nav-group-label">${group.group}</div>`;
+    visibleItems.forEach(item => {
+      const isActive = item.href === currentPage;
+      navHTML += `
+        <a href="${item.href}" class="nav-item${isActive ? ' active' : ''}">
+          <span class="nav-icon"><i class="fa-solid ${item.icon}"></i></span>
+          <span class="nav-label">${item.label}</span>
+        </a>`;
+    });
+  });
+
+  sidebar.innerHTML = `
+    <!-- رأس الـ Sidebar -->
+    <div class="sidebar-header">
+      <div class="sidebar-header-top">
+        <span class="sidebar-brand-text">POS DZ</span>
+        <button class="sidebar-close-btn" id="sidebarCloseBtn" title="إغلاق">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="sidebar-user-box">
+        <div class="sidebar-user-avatar">
+          <i class="fa-solid fa-user"></i>
+        </div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name">${Sanitizer.escape(username)}</div>
+          <div class="sidebar-user-role">${roleLabel}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- قائمة التنقل -->
+    <nav class="sidebar-nav">
+      ${navHTML}
+      <div class="nav-divider"></div>
+      <button class="nav-item danger" id="sidebarLogout" style="width:100%;border:none;background:transparent;text-align:right;cursor:pointer;">
+        <span class="nav-icon"><i class="fa-solid fa-right-from-bracket"></i></span>
+        <span class="nav-label">تسجيل الخروج</span>
+      </button>
+    </nav>
+
+    <!-- تذييل الـ Sidebar -->
+    <div style="padding:10px 14px;border-top:1px solid var(--border);text-align:center;font-size:0.7rem;color:var(--text-secondary);flex-shrink:0;">
+      POS DZ v${APP_VERSION.number}
+    </div>
+  `;
+
+  // ── أحداث الفتح / الإغلاق ───────────────────────────────────
   function openSidebar() {
     sidebar.classList.add('open');
     if (sidebarOverlay) sidebarOverlay.classList.add('open');
@@ -1664,29 +1756,18 @@ function initSidebar() {
     sidebarOverlay.addEventListener('click', closeSidebar);
   }
 
-  // إغلاق بـ Escape
+  document.getElementById('sidebarCloseBtn')?.addEventListener('click', closeSidebar);
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && sidebar.classList.contains('open')) {
-      closeSidebar();
-    }
+    if (e.key === 'Escape' && sidebar.classList.contains('open')) closeSidebar();
   });
 
-  // تمييز الرابط النشط
-  const currentPage = location.pathname.split('/').pop() || 'sale.html';
-  sidebar.querySelectorAll('.sidebar-link').forEach(link => {
-    const href = link.getAttribute('href') || '';
-    if (href === currentPage || href.endsWith(currentPage)) {
-      link.classList.add('active');
-    }
+  // ── زر الخروج ───────────────────────────────────────────────
+  document.getElementById('sidebarLogout')?.addEventListener('click', async () => {
+    closeSidebar();
+    const ok = await window.modalManager.confirm('هل تريد تسجيل الخروج؟', { yes: 'خروج', no: 'إلغاء' });
+    if (ok) window.sessionManager.logout(true);
   });
-
-  // زر تسجيل الخروج في الـ sidebar
-  const logoutBtn = sidebar.querySelector('#sidebarLogout');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      window.sessionManager.logout(true);
-    });
-  }
 }
 
 // ══════════════════════════════════════════════════════════════
