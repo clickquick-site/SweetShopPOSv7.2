@@ -456,10 +456,14 @@ class SessionManager {
     this.sessionActive = false;
     this.user = null;
     this.listeners = [];
+    // ✅ تحميل الجلسة فوراً عند إنشاء الكائن
+    // لأن requireAuth() تُستدعى قبل initApp() في صفحات كـ sale.html
+    this._loadFromStorage();
   }
 
   init() {
-    this._loadFromStorage();
+    // _loadFromStorage سبق استدعاؤها في الـ constructor
+    // نكتفي هنا بتهيئة الأحداث والمؤقت
     this._setupEventListeners();
     if (this.user) {
       this._resetTimer();
@@ -1491,6 +1495,18 @@ async function openDB() {
   return window.dbManager.open();
 }
 
+// ✅ دالة applyTheme العامة — مطلوبة من index.html
+async function applyTheme() {
+  try {
+    if (!window.themeManager) {
+      window.themeManager = new ThemeManager(window.dbManager);
+    }
+    await window.themeManager.apply();
+  } catch(e) {
+    console.warn('تحذير applyTheme:', e);
+  }
+}
+
 function getSession() {
   return window.sessionManager.getUser();
 }
@@ -1619,8 +1635,58 @@ async function loadHeaderStoreName() {
 }
 
 function initSidebar() {
-  // الكود الموجود في app.js القديم
-  // سيتم الحفاظ عليه كما هو
+  const sidebar        = document.getElementById('sidebar');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+  const menuBtn        = document.getElementById('menuBtn');
+
+  if (!sidebar) return;
+
+  function openSidebar() {
+    sidebar.classList.add('open');
+    if (sidebarOverlay) sidebarOverlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    if (sidebarOverlay) sidebarOverlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  if (menuBtn) {
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+  }
+
+  if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', closeSidebar);
+  }
+
+  // إغلاق بـ Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+      closeSidebar();
+    }
+  });
+
+  // تمييز الرابط النشط
+  const currentPage = location.pathname.split('/').pop() || 'sale.html';
+  sidebar.querySelectorAll('.sidebar-link').forEach(link => {
+    const href = link.getAttribute('href') || '';
+    if (href === currentPage || href.endsWith(currentPage)) {
+      link.classList.add('active');
+    }
+  });
+
+  // زر تسجيل الخروج في الـ sidebar
+  const logoutBtn = sidebar.querySelector('#sidebarLogout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      window.sessionManager.logout(true);
+    });
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
